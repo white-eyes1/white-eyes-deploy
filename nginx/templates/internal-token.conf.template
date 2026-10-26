@@ -1,0 +1,4 @@
+# nginx 이미지가 시작할 때 환경변수 INTERNAL_API_TOKEN을 넣어 /etc/nginx/internal-token.conf로 만든다
+map $host $internal_api_token {
+    default "${INTERNAL_API_TOKEN}";
+}

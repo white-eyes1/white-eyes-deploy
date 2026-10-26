@@ -1,0 +1,180 @@
+# white-eyes 전체(사용자 앱·관리자 앱·분석 서버·nginx·MySQL)를 local에서 한 번에 띄운다. 사용법은 README.md
+# 이미지는 white-eyes-spring·white-eyes-flask의 Dockerfile로 만든다. 저장소 위치는 SPRING_DIR·FLASK_DIR(기본: 이 폴더 옆)
+name: white-eyes
+
+x-logging: &logging
+  # 로그는 표준 출력만 쓰고 회전은 Docker가 한다(code-conventions.md '로그')
+  driver: json-file
+  options: { max-size: 10m, max-file: "5" }
+
+x-spring-env: &spring-env
+  TZ: Asia/Seoul
+  SPRING_PROFILES_ACTIVE: local
+  LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+  DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}
+  JAVA_TOOL_OPTIONS: -Xmx768m
+
+x-admin-env: &admin-env
+  <<: *spring-env
+  DB_USERNAME: white_eyes_admin
+  DB_PASSWORD: ${ADMIN_DB_PASSWORD}
+  ANALYZER_BASE_URL: http://flask:5000
+  INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+  SUPER_ADMIN_LOGIN_ID: ${SUPER_ADMIN_LOGIN_ID}
+  SUPER_ADMIN_INITIAL_PASSWORD: ${SUPER_ADMIN_INITIAL_PASSWORD}
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      # mysql/init/01-accounts.sh가 앱별 계정을 만들 때 쓴다
+      ADMIN_DB_PASSWORD: ${ADMIN_DB_PASSWORD}
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD}
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --default-time-zone=+09:00]
+    ports:
+      # 앱을 컨테이너 밖에서(bootRun·IDE) 띄울 때 붙는 곳. 이 컴퓨터에서만 접속된다. 3306을 이미 쓰면 .env의 MYSQL_PORT로 바꾼다
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      retries: 30
+    logging: *logging
+
+  admin:
+    image: white-eyes/admin:local
+    build:
+      context: ${SPRING_DIR:-../white-eyes-spring}
+      target: admin
+    env_file:
+      # 앱 설정(임계값·보관 일수 등, 이름은 white-eyes-spring .env.example). 없으면 기본값. 아래 environment가 우선한다
+      - { path: ./env/spring.env, required: false }
+    environment: *admin-env
+    depends_on:
+      mysql: { condition: service_healthy }
+    healthcheck:
+      # 로그인 화면이 열리면 Flyway까지 끝난 것이다(actuator health는 로그인 대상)
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost:8081/admin/login"]
+      interval: 10s
+      start_period: 60s
+      retries: 30
+    logging: *logging
+
+  # 사용자 앱 계정에 표 권한을 준다. 표는 관리자 앱 Flyway가 만들므로 그 뒤에 돈다. 마이그레이션이 늘면 up 할 때마다 다시 준다.
+  # 관리자 앱을 bootRun으로 띄웠을 때는 직접 돌린다: docker compose run --rm --no-deps db-grants
+  db-grants:
+    image: mysql:8.4
+    entrypoint: ["sh", "/grant-user.sh"]
+    environment:
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    volumes:
+      - ./mysql/grant-user.sh:/grant-user.sh:ro
+    depends_on:
+      admin: { condition: service_healthy }
+    restart: "no"
+    logging: *logging
+
+  user:
+    image: white-eyes/user:local
+    build:
+      context: ${SPRING_DIR:-../white-eyes-spring}
+      target: user
+    env_file:
+      # 앱 설정(임계값·보관 일수 등, 이름은 white-eyes-spring .env.example). 없으면 기본값. 아래 environment가 우선한다
+      - { path: ./env/spring.env, required: false }
+    environment:
+      <<: *spring-env
+      DB_USERNAME: white_eyes_user
+      DB_PASSWORD: ${USER_DB_PASSWORD}
+    depends_on:
+      db-grants: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost:8080/login"]
+      interval: 10s
+      start_period: 60s
+      retries: 30
+    logging: *logging
+
+  flask:
+    image: white-eyes/flask:local
+    build:
+      context: ${FLASK_DIR:-../white-eyes-flask}
+    env_file:
+      # 분석 설정(이름은 white-eyes-flask .env.example). 없으면 기본값. 아래 environment가 우선한다
+      - { path: ./env/flask.env, required: false }
+    environment:
+      TZ: Asia/Seoul
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      DETECTOR: ${DETECTOR:-visdrone}
+      YOLO_WEIGHTS: /weights/${YOLO_WEIGHTS_FILE:-visdrone-yolov8m.pt}
+      MEDIA_ROOT: /srv/media
+      ADMIN_INTERNAL_BASE_URL: http://admin:8082/admin
+      LOG_LEVEL: ${FLASK_LOG_LEVEL:-INFO}
+    volumes:
+      # 공유 스토리지(NFS) 대신 이 폴더를 분석 서버(쓰기)와 nginx(읽기)가 함께 쓴다
+      - ./media:/srv/media
+      - ./weights:/weights:ro
+      - analyzer-data:/var/lib/analyzer
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs -o /dev/null -H \"X-Internal-Token: $$INTERNAL_API_TOKEN\" http://localhost:5000/analyzer/v1/health"]
+      interval: 10s
+      start_period: 60s
+      retries: 30
+    logging: *logging
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    environment:
+      TZ: Asia/Seoul
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # templates/*.template을 환경변수로 채워 /etc/nginx/에 둔다(internal-token.conf)
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+    volumes:
+      # 설정은 nginx/ (README.md). 토큰 파일만 시작할 때 만든다
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/proxy.inc:/etc/nginx/proxy.inc:ro
+      - ./nginx/sse.inc:/etc/nginx/sse.inc:ro
+      - ./nginx/upstreams.conf:/etc/nginx/upstreams.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./media:/srv/media:ro
+    depends_on: [user, admin, flask]
+    logging: *logging
+
+  # ---- 한 번만 돌리는 작업(docker compose run --rm <이름>) ---------------------------------------
+  # 행정구역 적재(FNC-A-012). 먼저 scripts/fetch-regions.sh로 regions/regions.geojson을 만든다
+  load-regions:
+    image: white-eyes/admin:local
+    profiles: [jobs]
+    env_file:
+      - { path: ./env/spring.env, required: false }
+    command: ["--job=load-regions", "--file=/regions/regions.geojson"]
+    environment: *admin-env
+    volumes:
+      - ./regions:/regions:ro
+    depends_on:
+      mysql: { condition: service_healthy }
+
+  # 시연용 통계 생성(FNC-A-051). 설정은 spring deploy/demo/generate-demo.example.json을 demo/로 복사해 고친다
+  generate-demo:
+    image: white-eyes/admin:local
+    profiles: [jobs]
+    env_file:
+      - { path: ./env/spring.env, required: false }
+    command: ["--job=generate-demo", "--config=/demo/generate-demo.json"]
+    environment: *admin-env
+    volumes:
+      - ./demo:/demo:ro
+    depends_on:
+      mysql: { condition: service_healthy }
+
+volumes:
+  mysql-data:
+  analyzer-data:

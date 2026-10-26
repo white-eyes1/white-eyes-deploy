@@ -1,0 +1,7 @@
+.env
+media/
+weights/
+regions/
+demo/
+compose.override.yml
+env/
