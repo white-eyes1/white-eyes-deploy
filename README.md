@@ -39,7 +39,7 @@ docker compose ps                         # admin·user·flask가 healthy, db-gr
 docker compose run --rm load-regions      # 행정구역 적재(처음 한 번)
 ```
 - 사용자 앱 `http://localhost/`, 관리자 앱 `http://localhost/admin/`(`.env`의 최고 관리자로 로그인 → 첫 로그인에 비밀번호 변경)
-- 시연용 통계: 관리자 화면에서 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm generate-demo`. 구역마다 첫 가동 시각 직전까지 1년 치 시간별·일별을 만든다(가동 전에 실행했다면 가동 뒤 한 번 더). 자세한 것은 spring `admin/demo/README.md`
+- 시연용 통계: 관리자 화면에서 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm generate-demo`. 구역마다 첫 가동 시각 직전까지 1년 치 시간별·일별을 만든다(가동 전에 실행했다면 가동 뒤 한 번 더). 첫 가동 당일에 실행하면 그날 일별까지 시간별 합과 맞는다(지난 날이면 그날 하루만 다를 수 있음). 자세한 것은 spring `admin/demo/README.md`
   ```bash
   docker compose run --rm generate-demo                                        # 모든 구역, 기본 설정
   docker compose run --rm generate-demo --job=generate-demo --zone=1,2         # 1·2번 구역만 다시 만듦
