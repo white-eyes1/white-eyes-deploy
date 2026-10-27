@@ -162,13 +162,16 @@ services:
     depends_on:
       mysql: { condition: service_healthy }
 
-  # 시연용 통계 생성(FNC-A-051). 설정은 spring deploy/demo/generate-demo.example.json을 demo/로 복사해 고친다
+  # 시연용 통계 생성(FNC-A-051). 설정 파일 없이 모든 구역을 만든다.
+  # 일부 구역만: docker compose run --rm generate-demo --job=generate-demo --zone=1,2
+  # 값을 바꿀 때만 spring admin/demo/generate-demo.example.json을 demo/generate-demo.json으로 복사해 고치고
+  # --job=generate-demo --config=/demo/generate-demo.json 을 붙인다(명령을 붙이면 아래 command가 통째로 바뀜)
   generate-demo:
     image: white-eyes/admin:local
     profiles: [jobs]
     env_file:
       - { path: ./env/spring.env, required: false }
-    command: ["--job=generate-demo", "--config=/demo/generate-demo.json"]
+    command: ["--job=generate-demo"]
     environment: *admin-env
     volumes:
       - ./demo:/demo:ro
