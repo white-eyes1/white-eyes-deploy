@@ -39,13 +39,62 @@ docker compose ps                         # admin·user·flask가 healthy, db-gr
 docker compose run --rm load-regions      # 행정구역 적재(처음 한 번)
 ```
 - 사용자 앱 `http://localhost/`, 관리자 앱 `http://localhost/admin/`(`.env`의 최고 관리자로 로그인 → 첫 로그인에 비밀번호 변경)
-- 시연용 통계: 관리자 화면에서 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm generate-demo`. 구역마다 첫 가동 시각 직전까지 1년 치 시간별·일별을 만든다(가동 전에 실행했다면 가동 뒤 한 번 더). 첫 가동 당일에 실행하면 그날 일별까지 시간별 합과 맞는다(지난 날이면 그날 하루만 다를 수 있음). 자세한 것은 spring `admin/demo/README.md`
-  ```bash
-  docker compose run --rm generate-demo                                        # 모든 구역, 기본 설정
-  docker compose run --rm generate-demo --job=generate-demo --zone=1,2         # 1·2번 구역만 다시 만듦
-  docker compose run --rm generate-demo --job=generate-demo --config=/demo/generate-demo.json  # 값 바꿀 때(spring 견본을 demo/로 복사해 고침)
-  docker compose run --rm generate-demo --job=delete-demo                      # 시연용 데이터 지우기
-  ```
+- 시연용 통계: 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm generate-demo`. 옵션·설정 파일·확인 방법은 아래 "시연용 통계 만들기".
+
+## 시연용 통계 만들기
+장기 통계 화면을 시연하려고 과거 1년 치 시간별·일별 통계를 규칙으로 만든다(FNC-A-051, 지우기는 FNC-A-052). 시연용 행은 `is_demo=1`이고 실제 데이터(`is_demo=0`)는 건드리지 않는다. local·dev에서만 돌고 prod에서는 막힌다. 코드와 설정 항목의 설명은 white-eyes-spring `admin/demo/README.md`.
+
+### 언제 돌리나
+1. 관리자 화면에서 구역·이웃·캠을 등록하고 캠을 **가동**한다.
+2. 그 뒤에 만든다. 구역마다 **그 구역 캠이 처음 가동된 정시 직전까지**, 시작은 그 1년 전 날짜 0시다. 그래서 첫 가동 뒤에 돌려야 실제 통계와 끊기지 않는다. 가동 전에 돌렸다면 가동한 뒤 한 번 더 돌린다(다시 돌리면 먼저 지우고 처음부터 만든다).
+3. 일별은 시간별 합과 같게 맞춘다. 단, 첫 가동일이 이미 지난 뒤에 돌리면 **그날 하루만** 일별이 시간별 합과 다를 수 있다. 맞추려면 첫 가동 당일에 돌린다.
+
+### 실행
+전체 옵션을 다 붙인 명령은 이렇다.
+```bash
+docker compose run --rm generate-demo --job=generate-demo --zone=1,2 --config=/demo/generate-demo.json
+```
+| 부분 | 뜻 |
+|---|---|
+| `docker compose run --rm` | 한 번 돌고 끝나는 컨테이너를 띄우고, 끝나면 지운다 |
+| `generate-demo` | compose 서비스 이름. `jobs` 프로필이라 `up`에는 같이 뜨지 않는다. `admin`과 같은 이미지(`white-eyes/admin:local`)를 쓰므로 spring을 바꿨다면 먼저 `docker compose build admin` |
+| `--job=generate-demo` | 시연용 통계를 만든다(FNC-A-051). 지우기는 `--job=delete-demo`(FNC-A-052) |
+| `--zone=1,2` | 선택. 만들 구역 번호를 쉼표로 이어 쓴다(`--zone=1 --zone=2`도 된다). 없으면 삭제되지 않은 모든 구역 |
+| `--config=/demo/generate-demo.json` | 선택. 설정 파일. 없으면 기본 설정. 하나만 줄 수 있고, 경로는 컨테이너 안 경로다 |
+
+- **`--zone`·`--config`를 붙이면 compose의 `command`(`--job=generate-demo`)가 통째로 바뀐다.** 그래서 `--job=generate-demo`를 함께 적는다.
+- 옵션을 하나도 안 붙인 `docker compose run --rm generate-demo`는 모든 구역을 기본 설정으로 만든다. 지우기는 `docker compose run --rm generate-demo --job=delete-demo`.
+- `--zone`을 주면 그 구역의 시연용 행만 지우고 다시 만든다. 안 주면 기존 시연용 데이터를 전부 지우고 다시 만든다. 없거나 삭제된 구역을 주면 **아무것도 지우지 않고 멈춘다**.
+- `mysql`이 healthy면 된다. 관리자 앱은 떠 있어도 된다(작업 모드로 뜬 인스턴스는 웹 서버·예약 작업을 켜지 않는다).
+- 같은 seed·구역·시각이면 언제 돌려도 값이 같다. 일부 구역만 다시 만들어도 이웃과의 이동량 짝이 맞는다. 이웃 관계나 이웃의 설정을 바꿨다면 관련 구역을 함께 다시 만든다.
+
+### 설정 파일로 값 바꾸기
+기본값은 코드에 있어서 설정 파일 없이 돌려도 된다. 구역별 인원이나 급증일을 바꿀 때만 쓴다. 견본은 기본값을 적은 것인데, `surgeDays`만 기본값이 비어 있고 견본에는 예시 두 날짜가 들어 있다. 급증일이 필요 없으면 견본에서 `surgeDays`를 `[]`로 바꾼다.
+```bash
+mkdir -p demo                                                          # demo/는 커밋하지 않는다(.gitignore)
+cp ../white-eyes-spring/admin/demo/generate-demo.example.json demo/generate-demo.json
+# demo/generate-demo.json에서 바꿀 항목만 남기고 고친다. 적지 않은 항목은 기본값
+```
+- 컨테이너 안에서는 `./demo`가 읽기 전용 `/demo`로 보인다. `--config`에는 호스트 경로가 아니라 **`/demo/generate-demo.json`**을 적는다.
+- 구역별 값은 `zones`에 `{"zoneId": 1, "baseCount": 50, "avgDwellSec": 900}`로 적는다. `zones`에 없는 구역은 `defaultZone`(기본: 인원 30, 체류 600초) 값을 쓴다.
+- 파일에 적은 항목만 기본값을 덮어쓴다. 모르는 항목(철자 오타 포함)이 있거나 값이 틀리면 **아무것도 지우지 않고 멈춘다**. 예전 파일의 `startDate`는 무시한다(경고 로그).
+- 항목 뜻(`seed`, `hourWeights`, `dayOfWeekWeights`, `seasonWeights`, `surgeDays`)은 spring `admin/demo/README.md` 표.
+
+### 확인
+끝나면 종료 코드 0이고 로그 끝에 구역 수·시간별·일별·먼저 지운 건수가 한 줄로 나온다. 실패하면 0이 아니다.
+```bash
+docker compose run --rm generate-demo ; echo "종료 코드 $?"
+docker compose exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" \
+  -e "SELECT is_demo, COUNT(*) FROM zone_stat_hourly GROUP BY is_demo; SELECT is_demo, COUNT(*) FROM zone_stat_daily GROUP BY is_demo;"'
+```
+사용자 앱·관리자 앱의 통계 그래프에서 시연용 구간이 따로 표시된다.
+
+### 문제가 생기면
+| 증상 | 원인·조치 |
+|---|---|
+| `시연용 통계 설정이 틀렸습니다: …` | 설정 파일 항목·값 오류. 메시지에 항목 이름이 나온다. 아무것도 지워지지 않았다 |
+| 설정 파일을 읽을 수 없다 | `--config`를 호스트 경로로 적었거나 `demo/`에 파일이 없다. `/demo/…`로 적는다 |
+| 중간에 실패 | 날짜마다 커밋되므로 일부만 남는다. 원인을 고친 뒤 다시 돌리면 먼저 지우고 처음부터 만든다 |
 
 ## 앱 설정 바꾸기
 임계값·보관 일수·분석 입력 크기처럼 앱이 읽는 설정은 `env/spring.env`(사용자·관리자 앱), `env/flask.env`(분석 서버)에 적는다. 없으면 앱 기본값을 쓴다. 쓸 수 있는 이름은 각 저장소의 `.env.example`이다. 주소·계정·토큰은 compose가 정하므로 여기에 적어도 바뀌지 않는다.
