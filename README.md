@@ -37,12 +37,12 @@ docker compose ps                         # admin·user·flask가 healthy
 ```
 - 행정구역(대전과 맞닿은 시·군·구 14곳)은 관리자 앱이 시작할 때 자동으로 들어간다(spring `db/regions`, white-eyes-docs decisions/0020). 따로 적재하지 않는다
 - 사용자 앱 `http://localhost/`, 관리자 앱 `http://localhost/admin/`(`.env`의 최고 관리자로 로그인 → 첫 로그인에 비밀번호 변경)
-- 시연용 통계: 관리자 화면에서 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm generate-demo`. 구역마다 첫 가동 시각 직전까지 1년 치 시간별·일별을 만든다(가동 전에 실행했다면 가동 뒤 한 번 더). 첫 가동 당일에 실행하면 그날 일별까지 시간별 합과 맞는다(지난 날이면 그날 하루만 다를 수 있음). 자세한 것은 spring `admin/demo/README.md`
+- 시연용 통계: 관리자 화면에서 구역·캠을 등록하고 **가동한 뒤** `docker compose run --rm tools generate-demo`. 구역마다 첫 가동 시각 직전까지 1년 치 시간별·일별을 만든다(가동 전에 실행했다면 가동 뒤 한 번 더). 첫 가동 당일에 실행하면 그날 일별까지 시간별 합과 맞는다(지난 날이면 그날 하루만 다를 수 있음). 자세한 것은 spring `tools/demo/README.md`. tools는 `up`에 뜨지 않고 실행할 때만 컨테이너가 생겼다 사라진다
   ```bash
-  docker compose run --rm generate-demo                                        # 모든 구역, 기본 설정
-  docker compose run --rm generate-demo --job=generate-demo --zone=1,2         # 1·2번 구역만 다시 만듦
-  docker compose run --rm generate-demo --job=generate-demo --config=/demo/generate-demo.json  # 값 바꿀 때(spring 견본을 demo/로 복사해 고침)
-  docker compose run --rm generate-demo --job=delete-demo                      # 시연용 데이터 지우기
+  docker compose run --rm tools generate-demo                                  # 모든 구역, 기본 설정
+  docker compose run --rm tools generate-demo --zone=1,2                       # 1·2번 구역만 다시 만듦
+  docker compose run --rm tools generate-demo --config=/demo/generate-demo.json # 값 바꿀 때(spring 견본을 demo/로 복사해 고침)
+  docker compose run --rm tools delete-demo                                    # 시연용 데이터 지우기
   ```
 
 ## 앱 설정 바꾸기
