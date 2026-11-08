@@ -11,7 +11,6 @@ white-eyes 전체(사용자 앱·관리자 앱·분석 서버·nginx·MySQL)를 
 | admin | 관리자 앱(웹 8081, 내부 API 8082). Flyway를 돌린다 | - |
 | flask | 분석 서버(5000) | - |
 | mysql | MySQL 8.4. 앱마다 DB 계정을 따로 둔다 | - |
-| db-grants | 관리자 앱 Flyway 뒤에 사용자 앱 계정에 표 권한을 주고 끝난다 | - |
 
 공유 스토리지(NFS)는 `./media` 폴더로 대신한다. 분석 서버는 쓰고 nginx는 읽기만 한다. 관리자 앱은 파일을 직접 읽지 않는다(`X-Accel-Redirect`).
 
@@ -34,7 +33,7 @@ white-eyes 전체(사용자 앱·관리자 앱·분석 서버·nginx·MySQL)를 
 ## 실행
 ```bash
 docker compose up -d --build              # 처음은 이미지 빌드로 10분 넘게 걸린다
-docker compose ps                         # admin·user·flask가 healthy, db-grants가 Exited (0)
+docker compose ps                         # admin·user·flask가 healthy
 ```
 - 행정구역(대전과 맞닿은 시·군·구 14곳)은 관리자 앱이 시작할 때 자동으로 들어간다(spring `db/regions`, white-eyes-docs decisions/0020). 따로 적재하지 않는다
 - 사용자 앱 `http://localhost/`, 관리자 앱 `http://localhost/admin/`(`.env`의 최고 관리자로 로그인 → 첫 로그인에 비밀번호 변경)
@@ -54,13 +53,11 @@ docker compose up -d admin user           # 설정만 바꿨으면 --build 없�
 ```
 
 ## 개발할 때(앱을 bootRun·IDE로 띄움)
-MySQL만 여기서 띄우고, 앱은 각 저장소에서 띄운다. DB 계정은 명세대로 앱마다 다르다(관리자 앱 `white_eyes_admin`, 사용자 앱 `white_eyes_user`).
+MySQL만 여기서 띄우고, 앱은 각 저장소에서 띄운다. DB 계정은 명세대로 앱마다 다르다(관리자 앱 `white_eyes_admin`, 사용자 앱 `white_eyes_user`, 관리자 앱 시작 때 Flyway `white_eyes_flyway`).
 ```bash
 docker compose up -d mysql                # 127.0.0.1:3306(.env의 MYSQL_PORT)
-# 관리자 앱을 띄워 Flyway가 표를 만든 뒤, 사용자 앱 계정에 표 권한을 준다
-docker compose run --rm --no-deps db-grants
 ```
-- 새 표를 만드는 마이그레이션 뒤에도 `db-grants`를 다시 돌린다. 안 돌리면 사용자 앱이 그 표에서 권한 오류(`command denied`)로 멈춘다.
+- 관리자 앱을 먼저 띄운다. 시작할 때 Flyway가 표를 만들고 사용자 앱 계정에 표 권한을 준다(새 표도 자동).
 - 앱 실행 방법은 white-eyes-spring CLAUDE.md '명령'.
 
 ## 자주 쓰는 명령
@@ -74,7 +71,8 @@ docker compose down -v                    # DB·분석 서버 캐시까지 지�
 
 ## 구성 메모
 - nginx: 설정과 확인 스크립트는 `nginx/README.md`. 서버 주소는 `nginx/upstreams.conf`, 내부 토큰은 시작할 때 `.env`의 `INTERNAL_API_TOKEN`으로 만든다.
-- DB 계정(conventions.md 'DB 계정'): 관리자 앱 계정은 전체 권한. 사용자 앱 계정은 `admin_account`·`SPRING_SESSION_ADMIN`(+속성 표)·`flyway_schema_history`를 뺀 표의 SELECT·INSERT·UPDATE·DELETE만 갖는다. MySQL은 "이 표만 빼고"를 줄 수 없어서 `db-grants`가 표마다 준다.
+- DB 계정(conventions.md 'DB 계정'): Flyway 계정은 표 변경과 권한 부여, 관리자 앱 계정은 모든 표의 데이터 읽기·쓰기. 사용자 앱 계정은 `admin_account`·`SPRING_SESSION_ADMIN`(+속성 표)·`flyway_schema_history`를 뺀 표의 SELECT·INSERT·UPDATE·DELETE만 갖는다. MySQL은 "이 표만 빼고"를 줄 수 없어서 관리자 앱 시작 때 Flyway(spring `db/mysql/afterMigrate.sql`)가 표마다 준다.
+- 계정 구성이 바뀌면(2026-11, Flyway 계정 추가) 기존 MySQL 볼륨에는 새 계정이 없어 관리자 앱이 시작하지 못한다. `.env`에 `FLYWAY_DB_PASSWORD`를 넣고 `docker compose down -v`로 DB를 새로 만든다.
 - `.env`의 DB 비밀번호는 MySQL 볼륨을 처음 만들 때만 적용된다. 바꾸려면 `down -v`.
 - MySQL은 `127.0.0.1`로만 열어 다른 컴퓨터에서는 붙을 수 없다. 3306을 이미 쓰고 있으면 `up`이 `port is already allocated`로 멈춘다. `.env`에 `MYSQL_PORT=3307`처럼 바꾼다(white-eyes-spring troubleshooting 0019).
 - 디버깅으로 앱 포트를 직접 열려면 `compose.override.yml`에 `ports`를 더한다(커밋하지 않는다).

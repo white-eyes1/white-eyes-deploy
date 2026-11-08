@@ -18,6 +18,9 @@ x-admin-env: &admin-env
   <<: *spring-env
   DB_USERNAME: white_eyes_admin
   DB_PASSWORD: ${ADMIN_DB_PASSWORD}
+  # 관리자 앱 시작 때 Flyway가 쓰는 계정(표 변경·사용자 앱 계정 권한)
+  FLYWAY_DB_USERNAME: white_eyes_flyway
+  FLYWAY_DB_PASSWORD: ${FLYWAY_DB_PASSWORD}
   ANALYZER_BASE_URL: http://flask:5000
   INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
   SUPER_ADMIN_LOGIN_ID: ${SUPER_ADMIN_LOGIN_ID}
@@ -31,6 +34,7 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       # mysql/init/01-accounts.sh가 앱별 계정을 만들 때 쓴다
+      FLYWAY_DB_PASSWORD: ${FLYWAY_DB_PASSWORD}
       ADMIN_DB_PASSWORD: ${ADMIN_DB_PASSWORD}
       USER_DB_PASSWORD: ${USER_DB_PASSWORD}
     command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --default-time-zone=+09:00]
@@ -65,21 +69,6 @@ services:
       retries: 30
     logging: *logging
 
-  # 사용자 앱 계정에 표 권한을 준다. 표는 관리자 앱 Flyway가 만들므로 그 뒤에 돈다. 마이그레이션이 늘면 up 할 때마다 다시 준다.
-  # 관리자 앱을 bootRun으로 띄웠을 때는 직접 돌린다: docker compose run --rm --no-deps db-grants
-  db-grants:
-    image: mysql:8.4
-    entrypoint: ["sh", "/grant-user.sh"]
-    environment:
-      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-    volumes:
-      - ./mysql/grant-user.sh:/grant-user.sh:ro
-    depends_on:
-      admin: { condition: service_healthy }
-    restart: "no"
-    logging: *logging
-
   user:
     image: white-eyes/user:local
     build:
@@ -93,7 +82,8 @@ services:
       DB_USERNAME: white_eyes_user
       DB_PASSWORD: ${USER_DB_PASSWORD}
     depends_on:
-      db-grants: { condition: service_completed_successfully }
+      # 표와 사용자 앱 계정 권한은 관리자 앱이 시작할 때 Flyway가 만든다
+      admin: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://localhost:8080/login"]
       interval: 10s
