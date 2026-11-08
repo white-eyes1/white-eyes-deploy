@@ -149,19 +149,6 @@ services:
     logging: *logging
 
   # ---- 한 번만 돌리는 작업(docker compose run --rm <이름>) ---------------------------------------
-  # 행정구역 적재(FNC-A-012). 먼저 scripts/fetch-regions.sh로 regions/regions.geojson을 만든다
-  load-regions:
-    image: white-eyes/admin:local
-    profiles: [jobs]
-    env_file:
-      - { path: ./env/spring.env, required: false }
-    command: ["--job=load-regions", "--file=/regions/regions.geojson"]
-    environment: *admin-env
-    volumes:
-      - ./regions:/regions:ro
-    depends_on:
-      mysql: { condition: service_healthy }
-
   # 시연용 통계 생성(FNC-A-051). 설정 파일 없이 모든 구역을 만든다.
   # 일부 구역만: docker compose run --rm generate-demo --job=generate-demo --zone=1,2
   # 값을 바꿀 때만 spring admin/demo/generate-demo.example.json을 demo/generate-demo.json으로 복사해 고치고
